@@ -2,21 +2,23 @@
    Monte Carlo simulation to sample the winding number of a 1D periodic lattice.
 
    The simulation uses the Metropolis algorithm to update lattice sites and runs
-   multiple replicas of the system at different simbeta values. To avoid topological
-   freezing, configurations are occasionally exchanged to reduce correlation.
+   multiple replicas of the system (if selected) at different simbeta values.
+   To avoid topological freezing, configurations are occasionally exchanged to
+   reduce correlation.
 
    The output is a sequence of winding numbers from the input simbeta replica.
 
-   The HIGH_TEMPERATURE mode activates a reweighting potential that boosts the 
+   The HIGH_TEMPERATURE mode activates a reweighting potential that boosts the
    probability of sampling configurations with larger winding numbers
    (while keeping their magnitude bounded by QMAX).
 
    This mechanism improves statistical access to the tails of the
-   winding number distribution in the high temperature regime, allowing rare
-   topological sectors to be explored with a reasonable number of samples.
+   winding number distribution in the high temperature regime, relevant for
+   the interested observable, allowing rare topological sectors to be
+   explored with a reasonable number of samples.
 
-   When HIGH_TEMPERATURE is enabled, a post processing reweighting analysis is 
-   required to correctly restore the statistical weight of the sampled 
+   When HIGH_TEMPERATURE is enabled, a post processing reweighting analysis is
+   required to correctly restore the statistical weight of the sampled
    configurations.
 */
 
@@ -29,9 +31,9 @@
 #include "../include/random.h"
 
 //#define DEBUG_MODE
-#define HIGH_TEMPERATURE
+//#define HIGH_TEMPERATURE
 
-#define STRING_LENGTH 20
+#define STRING_LENGTH 50
 
 #define QMAX 5
 #define CHI 1
@@ -39,8 +41,7 @@
 typedef struct simulation
 {
     double *lattice;
-    long int windingNumber;  
-
+    long int windingNumber;
 
     double simbeta;
     long int nSites;
@@ -51,7 +52,7 @@ typedef struct simulation
 
 } simulation;
 
-/* Limit winding number within the reweighting range. */
+/* Limit winding number within the reweighting range */
 inline long int clampToRange(long int x, long int bound)
 {
     if (x > bound)
@@ -61,7 +62,7 @@ inline long int clampToRange(long int x, long int bound)
     return x;
 }
 
-/* Compute the reweighting potential added in the HIGH_TEMPERATURE mode. */
+/* Compute the reweighting potential added in the HIGH_TEMPERATURE mode */
 double reweightPotential(simulation *restrict system)
 {
     double addedPotential;
@@ -118,9 +119,9 @@ double computeEnergy(simulation *restrict system, long int const *restrict nnp)
 }
 
 /* Compute the change in winding number resulting from a local site trial update */
-long int deltaWinding(const simulation *restrict system, 
-                      long int const * restrict nnp,
-                      long int const * restrict nnm,
+long int deltaWinding(const simulation *restrict system,
+                      long int const *restrict nnp,
+                      long int const *restrict nnm,
                       long int site, double trial)
 {
     double distanceOld, distanceNew, delta;
@@ -141,7 +142,7 @@ long int deltaWinding(const simulation *restrict system,
     return lround(delta);
 }
 
-/* Compute the variation of the reweighting potential when the winding number changes. */
+/* Compute the variation of the reweighting potential when the winding number changes */
 double deltaReweightPotential(const simulation *restrict system, long int deltaQ)
 {
     double delta;
@@ -151,7 +152,7 @@ double deltaReweightPotential(const simulation *restrict system, long int deltaQ
         return 0;
 
     effQold = clampToRange(system->windingNumber, QMAX);
-    effQnew = clampToRange(lround(system->windingNumber + deltaQ), QMAX);
+    effQnew = clampToRange((system->windingNumber + deltaQ), QMAX);
 
     if (effQold == effQnew)
         return 0;
@@ -182,17 +183,17 @@ static inline double localEnergy(const simulation *restrict system, double siteV
 }
 
 /* Perform a single Metropolis sweep over the lattice */
-long int metroSweep(simulation *restrict system, long int const *restrict nnp,
-                    long const int *restrict nnm)
+long int metroSweep(simulation *restrict system, long int const *const restrict nnp,
+                    long int const *const restrict nnm)
 {
-    const double step = 0.5;
+    const double step = 0.5; 
     double trial, new, old, deltaE;
 
     long int accepted = 0, deltaQ;
 
     // for each site of lattice, in sequential order, do:
     for (long int site = 0; site < system->nSites; site++)
-    {   
+    {
         // Compute local energy for current state lattice
         old = localEnergy(system, system->lattice[site], site, nnp, nnm);
 
@@ -208,7 +209,7 @@ long int metroSweep(simulation *restrict system, long int const *restrict nnp,
         new = localEnergy(system, trial, site, nnp, nnm);
 
         // energy variation
-        deltaE = new - old; 
+        deltaE = new - old;
 
         #ifdef HIGH_TEMPERATURE
         // Include reweighting correction
@@ -247,6 +248,9 @@ void initializeSystem(simulation *system, long int nSites, double simbeta, int i
     for (long int ii = 0; ii < nSites; ii++)
     {
         system->lattice[ii] = 0.5;
+        #ifdef HIGH_TEMPERATURE
+        system->lattice[ii] = myrand();
+        #endif
     }
     #ifdef HIGH_TEMPERATURE
     // compute winding number
@@ -273,14 +277,14 @@ int attemptReplicaExchange(simulation *restrict system1, simulation *restrict sy
     deltaE = (Enew1 - Eold1) + (Enew2 - Eold2);
 
     if (deltaE <= 0.0 || myrand() < exp(-deltaE))
-    {   
+    {
         // Swap lattice configurations
         tmp = system1->lattice;
         system1->lattice = system2->lattice;
         system2->lattice = tmp;
 
         #ifdef HIGH_TEMPERATURE
-        // Swap winding numbers 
+        // Swap winding numbers
         long int tmpQ;
         tmpQ = system1->windingNumber;
         system1->windingNumber = system2->windingNumber;
@@ -326,7 +330,12 @@ int main(int argc, char **argv)
 
     // define variables
     int repnumber;
+
+    #ifdef HIGH_TEMPERATURE
+    const int measevery = 10, swapevery = 20;
+    #else
     const int measevery = 5, swapevery = 10;
+    #endif
 
     char filename[STRING_LENGTH];
     double simbeta, simbetamax, repbeta, aux;
@@ -438,33 +447,37 @@ int main(int argc, char **argv)
         return EXIT_FAILURE;
     }
     for (int n = 0; n < repnumber; n++)
-    {   
-        //simbeta ladder to get same swapping probabilities among all replicas
-        repbeta = simbeta * pow(simbetamax / simbeta, n / (double)(repnumber - 1));
+    {
+        if (repnumber == 1)
+            repbeta = simbeta;
+        else
+        {
+            // simbeta ladder to get same swapping probabilities among all replicas
+            repbeta = simbeta * pow(simbetamax / simbeta, n / (double)(repnumber - 1));
+        }
         initializeSystem(&replica[n], Nt, repbeta, n, nnp);
     }
 
-    // thermalization 
+    // thermalization
     for (long int iter = 0; iter < therm; iter++)
     {
         for (int n = 0; n < repnumber; n++)
-        {
             metroSweep(&replica[n], nnp, nnm);
-            if (iter % swapevery == 0)
+
+        if (iter % swapevery == 0)
+        {
+            if (myrand() >= 0.5)
             {
-                if (myrand() >= 0.5)
+                for (int n = 0; n < repnumber - 1; n++)
                 {
-                    for (int n = 0; n < repnumber - 1; n++)
-                    {
-                        (void)attemptReplicaExchange(&replica[n], &replica[n + 1], nnp);
-                    }
+                    (void)attemptReplicaExchange(&replica[n], &replica[n + 1], nnp);
                 }
-                else
+            }
+            else
+            {
+                for (int n = repnumber - 1; n > 0; n--)
                 {
-                    for (int n = repnumber - 1; n > 0; n--)
-                    {
-                        (void)attemptReplicaExchange(&replica[n], &replica[n - 1], nnp);
-                    }
+                    (void)attemptReplicaExchange(&replica[n], &replica[n - 1], nnp);
                 }
             }
         }
@@ -474,7 +487,7 @@ int main(int argc, char **argv)
     acceptedExchange = 0;
 
     for (long int iter = 0; iter < sample; iter++)
-    {   
+    {
         // Update each replica
         for (int n = 0; n < repnumber; n++)
         {
@@ -490,9 +503,9 @@ int main(int argc, char **argv)
         // Attempt replica exchanges every swapevery steps
         if (iter % swapevery == 0)
         {
-            // Select swapping direction randomly 
+            // Select swapping direction randomly
             if (myrand() >= 0.5)
-            {   
+            {
                 // Forward direction: lower to higher simbeta
                 for (int n = 0; n < repnumber - 1; n++)
                 {
@@ -500,7 +513,7 @@ int main(int argc, char **argv)
                 }
             }
             else
-            {   
+            {
                 // Backward direction: higher to lower simbeta
                 for (int n = repnumber - 1; n > 0; n--)
                 {
@@ -525,9 +538,11 @@ int main(int argc, char **argv)
     // print stats
     aux = (double)acceptedUpdate / (double)sample / (double)Nt;
     fprintf(stderr, "acceptance rate: %lf\n", aux);
-    aux = (double)acceptedExchange / ((double)sample * (repnumber - 1) / (double)swapevery);
-    fprintf(stderr, "swapping rate: %lf\n", aux);
-
+    if (repnumber != 1)
+    {
+        aux = (double)acceptedExchange / ((double)sample * (repnumber - 1) / (double)swapevery);
+        fprintf(stderr, "swapping rate: %lf\n", aux);
+    }
     for (int n = 0; n < repnumber; n++)
     {
         free(replica[n].lattice);

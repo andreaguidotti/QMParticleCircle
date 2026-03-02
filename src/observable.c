@@ -58,7 +58,7 @@ double reweighting(double windingNumber, double simbeta)
     // Clamp winding number to [-QMAX, QMAX]
     if (windingNumber > QMAX)
         effQ = QMAX;
-    if (windingNumber < -QMAX)
+    else if (windingNumber < -QMAX)
         effQ = -QMAX;
     else
         effQ = windingNumber;
@@ -363,7 +363,7 @@ int main(int argc, char **argv)
     jackknife(&obsQ2, dataSets, nblocks, blockdim, useReweighting, nDatasets);
 
     // Export results
-    fprintf(out, "%lf %lf\n", obsQ2.avg, obsQ2.std);
+    fprintf(out, "%.100lf %.100lf\n", obsQ2.avg, obsQ2.std);
 
     // Save results in output file
     fprintf(stderr, "All valid data saved in %s\n", outfile);
